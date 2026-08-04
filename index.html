@@ -1,0 +1,670 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CanSat & CubeSat Ground Control Software (GCS) | India Space Lab</title>
+    <meta name="description" content="Professional aerospace Single-Page Ground Control Software (GCS) for CanSat and CubeSat missions. Real-time telemetry parsing, 3D orientation, GPS tracking, and mission control.">
+    <meta name="author" content="India Space Lab">
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Orbitron:wght@500;700;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="css/styles.css">
+
+    <!-- Vendor Libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body class="theme-dark">
+
+    <!-- TOP MISSION CONTROL BAR -->
+    <header class="top-bar">
+        <div class="top-bar-left">
+            <div class="brand-badge">
+                <div class="brand-logo-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polygon points="12 2 19 21 12 17 5 21 12 2"></polygon>
+                    </svg>
+                </div>
+                <div class="brand-text">
+                    <span class="brand-org">INDIA SPACE LAB</span>
+                    <span class="brand-title">CANSAT / CUBESAT GCS v2.4</span>
+                </div>
+            </div>
+
+            <div class="mission-status-pill" id="missionStatusPill">
+                <span class="status-dot pulsing"></span>
+                <span class="status-label" id="flightStateLabel">STANDBY / PRE-LAUNCH</span>
+            </div>
+        </div>
+
+        <div class="top-bar-center">
+            <!-- Mission Clocks -->
+            <div class="clock-display">
+                <div class="clock-block">
+                    <span class="clock-title">MET (MISSION ELAPSED)</span>
+                    <span class="clock-value monospaced" id="metClock">00:00:00.0</span>
+                </div>
+                <div class="clock-separator">:</div>
+                <div class="clock-block">
+                    <span class="clock-title">UTC TIME</span>
+                    <span class="clock-value monospaced" id="utcClock">00:00:00 UTC</span>
+                </div>
+                <div class="clock-separator">:</div>
+                <div class="clock-block">
+                    <span class="clock-title">LOCAL TIME</span>
+                    <span class="clock-value monospaced" id="localClock">00:00:00 IST</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="top-bar-right">
+            <!-- Source Selector -->
+            <div class="source-selector-group">
+                <label for="dataSourceSelect" class="sr-only">Data Source</label>
+                <select id="dataSourceSelect" class="gcs-select">
+                    <option value="simulator" selected>🛰️ Mission Flight Simulator</option>
+                    <option value="serial">🔌 Web Serial (USB/COM)</option>
+                    <option value="file">📁 Replay Telemetry Log</option>
+                </select>
+                <input type="file" id="logFileInput" accept=".csv,.txt,.log" style="display: none;">
+            </div>
+
+            <!-- Serial Controls (visible when Serial chosen) -->
+            <div class="serial-controls-group" id="serialControlsGroup" style="display: none;">
+                <label for="baudRateSelect" class="sr-only">Baud Rate</label>
+                <select id="baudRateSelect" class="gcs-select gcs-select-compact">
+                    <option value="9600">9600</option>
+                    <option value="19200">19200</option>
+                    <option value="38400">38400</option>
+                    <option value="57600">57600</option>
+                    <option value="115200" selected>115200</option>
+                </select>
+                <button id="btnConnectSerial" class="gcs-btn gcs-btn-primary" title="Connect to USB Serial COM Port">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v10m-4-6l4 4 4-4M5 12h14v7a3 3 0 01-3 3H8a3 3 0 01-3-3v-7z"/></svg>
+                    CONNECT
+                </button>
+            </div>
+
+            <!-- Simulator Quick Launch Controls -->
+            <div class="sim-controls-group" id="simControlsGroup">
+                <select id="simSpeedSelect" class="gcs-select gcs-select-compact" title="Simulation Speed Multiplier">
+                    <option value="1" selected>1x Normal</option>
+                    <option value="2">2x Fast</option>
+                    <option value="5">5x Warp</option>
+                    <option value="10">10x Max</option>
+                </select>
+                <button id="btnLaunchSim" class="gcs-btn gcs-btn-success" title="Ignite Rocket Boost / Start Ascent (Key: L)">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                    LAUNCH
+                </button>
+                <button id="btnResetSim" class="gcs-btn gcs-btn-secondary" title="Reset Flight Mission to Pre-Launch (Key: R)">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>
+                    RESET
+                </button>
+            </div>
+
+            <!-- Master Telemetry Stream Toggle -->
+            <button id="btnToggleStream" class="gcs-btn gcs-btn-danger" title="Start/Stop Real-Time Stream (Key: Space)">
+                <span class="btn-dot"></span>
+                <span id="streamBtnText">STOP STREAM</span>
+            </button>
+
+            <!-- Action Tools -->
+            <div class="action-tools-group">
+                <button id="btnExportCSV" class="gcs-btn gcs-btn-icon" title="Export Mission Telemetry to CSV">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                </button>
+                <button id="btnExportGraph" class="gcs-btn gcs-btn-icon" title="Export High-Res Graph Images">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+                </button>
+                <button id="btnSyncTime" class="gcs-btn gcs-btn-icon" title="Sync Mission Clock with PC RTC">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                </button>
+                <button id="btnResetPacket" class="gcs-btn gcs-btn-icon" title="Zero Packet Counter">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
+                <button id="btnToggleAudio" class="gcs-btn gcs-btn-icon" title="Toggle Alert Beeps & Voice Callouts (Key: M)">
+                    <svg id="audioIconOn" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
+                    <svg id="audioIconOff" style="display: none;" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><line x1="23" y1="9" x2="17" y2="15"></line><line x1="17" y1="9" x2="23" y2="15"></line></svg>
+                </button>
+                <button id="btnOpenShortcuts" class="gcs-btn gcs-btn-icon" title="Operator Keyboard Shortcuts">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2" ry="2"></rect><line x1="6" y1="8" x2="6" y2="8"></line><line x1="10" y1="8" x2="10" y2="8"></line><line x1="14" y1="8" x2="14" y2="8"></line><line x1="18" y1="8" x2="18" y2="8"></line><line x1="6" y1="12" x2="6" y2="12"></line><line x1="18" y1="12" x2="18" y2="12"></line><line x1="7" y1="16" x2="17" y2="16"></line></svg>
+                </button>
+                <button id="btnOpenSettings" class="gcs-btn gcs-btn-icon" title="Mission Configuration & Settings">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                </button>
+                <button id="btnToggleFullscreen" class="gcs-btn gcs-btn-icon" title="Toggle Fullscreen HUD (Key: F)">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"></polyline><polyline points="9 21 3 21 3 15"></polyline><line x1="21" y1="3" x2="14" y2="10"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- MAIN DASHBOARD VIEWPORT -->
+    <main class="dashboard-grid">
+
+        <!-- ==================== LEFT COLUMN: TELEMETRY & SYSTEM HEALTH ==================== -->
+        <section class="dashboard-col col-left">
+
+            <!-- 4-DIGIT ERROR CODE MATRIX CARD (ISL SPEC 5) -->
+            <div class="card error-system-card" id="errorCodeCard">
+                <div class="card-header">
+                    <div class="card-header-title">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+                        <span>4-DIGIT ERROR MONITORING SYSTEM</span>
+                    </div>
+                    <div class="error-code-badge" id="errorCodeBadge">0000 NORMAL</div>
+                </div>
+                <div class="card-body">
+                    <div class="error-digits-display">
+                        <div class="digit-box" id="errDigit1Box">
+                            <span class="digit-number" id="errDigit1">0</span>
+                            <span class="digit-title">DESCENT RATE</span>
+                            <span class="digit-desc" id="errDigit1Desc">Within 8–10 m/s</span>
+                        </div>
+                        <div class="digit-box" id="errDigit2Box">
+                            <span class="digit-number" id="errDigit2">0</span>
+                            <span class="digit-title">GPS FIX</span>
+                            <span class="digit-desc" id="errDigit2Desc">Data Available</span>
+                        </div>
+                        <div class="digit-box" id="errDigit3Box">
+                            <span class="digit-number" id="errDigit3">0</span>
+                            <span class="digit-title">SEPARATION</span>
+                            <span class="digit-desc" id="errDigit3Desc">Separated OK</span>
+                        </div>
+                        <div class="digit-box" id="errDigit4Box">
+                            <span class="digit-number" id="errDigit4">0</span>
+                            <span class="digit-title">EMG PARACHUTE</span>
+                            <span class="digit-desc" id="errDigit4Desc">Inactive</span>
+                        </div>
+                    </div>
+
+                    <!-- Simulator Fault Injection Quick Toggles -->
+                    <div class="fault-injection-strip">
+                        <span class="strip-label">FAULT INJECTION TEST:</span>
+                        <button class="fault-chip" id="btnFaultDescent" title="Toggle Descent Rate Fault (Digit 1)">⚠️ DESCENT</button>
+                        <button class="fault-chip" id="btnFaultGPS" title="Toggle GPS Loss Fault (Digit 2)">🛰️ GPS LOSS</button>
+                        <button class="fault-chip" id="btnFaultSep" title="Toggle Separation Fault (Digit 3)">🔒 SEP FAIL</button>
+                        <button class="fault-chip" id="btnFaultChute" title="Toggle Emergency Chute (Digit 4)">🪂 CHUTE ACT</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- CONTAINER TELEMETRY CARD (ISL SPEC 4) -->
+            <div class="card telemetry-card">
+                <div class="card-header">
+                    <div class="card-header-title">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+                        <span>CONTAINER TELEMETRY (PRIMARY)</span>
+                    </div>
+                    <span class="live-tag">LIVE</span>
+                </div>
+                <div class="card-body">
+                    <div class="telemetry-grid">
+                        <div class="telemetry-item">
+                            <span class="tel-label">PACKET COUNT</span>
+                            <span class="tel-value monospaced" id="telPacketCount">0</span>
+                        </div>
+                        <div class="telemetry-item">
+                            <span class="tel-label">ALTITUDE</span>
+                            <span class="tel-value monospaced highlight-cyan" id="telAltitude">0.0 <small>m</small></span>
+                        </div>
+                        <div class="telemetry-item">
+                            <span class="tel-label">BARO PRESSURE</span>
+                            <span class="tel-value monospaced" id="telPressure">1013.25 <small>hPa</small></span>
+                        </div>
+                        <div class="telemetry-item">
+                            <span class="tel-label">EXTERNAL TEMP</span>
+                            <span class="tel-value monospaced" id="telTempExt">24.5 <small>°C</small></span>
+                        </div>
+                        <div class="telemetry-item">
+                            <span class="tel-label">DESCENT RATE</span>
+                            <span class="tel-value monospaced highlight-green" id="telDescentRate">0.0 <small>m/s</small></span>
+                        </div>
+                        <div class="telemetry-item">
+                            <span class="tel-label">CONTAINER STATE</span>
+                            <span class="tel-value monospaced" id="telContainerState">STANDBY</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- PAYLOAD TELEMETRY CARD (ISL SPEC 4) -->
+            <div class="card telemetry-card">
+                <div class="card-header">
+                    <div class="card-header-title">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polygon points="12 8 8 12 12 16 16 12 12 8"></polygon></svg>
+                        <span>PAYLOAD TELEMETRY (SECONDARY)</span>
+                    </div>
+                    <span class="live-tag">LIVE</span>
+                </div>
+                <div class="card-body">
+                    <div class="telemetry-grid">
+                        <div class="telemetry-item">
+                            <span class="tel-label">BATTERY VOLTAGE</span>
+                            <span class="tel-value monospaced highlight-amber" id="telVoltage">8.38 <small>V</small></span>
+                        </div>
+                        <div class="telemetry-item">
+                            <span class="tel-label">INTERNAL TEMP</span>
+                            <span class="tel-value monospaced" id="telTempInt">28.2 <small>°C</small></span>
+                        </div>
+                        <div class="telemetry-item">
+                            <span class="tel-label">ATTITUDE (R/P/Y)</span>
+                            <span class="tel-value monospaced" id="telAttitude">0° / 0° / 0°</span>
+                        </div>
+                        <div class="telemetry-item">
+                            <span class="tel-label">ACCEL (X/Y/Z)</span>
+                            <span class="tel-value monospaced" id="telAccel">0.0 / 0.0 / 1.0 <small>G</small></span>
+                        </div>
+                        <div class="telemetry-item">
+                            <span class="tel-label">GPS SATELLITES</span>
+                            <span class="tel-value monospaced" id="telGpsSats">11 Sats</span>
+                        </div>
+                        <div class="telemetry-item">
+                            <span class="tel-label">SIGNAL RSSI</span>
+                            <span class="tel-value monospaced" id="telRssi">-68 <small>dBm</small></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- RAW SERIAL / PACKET TERMINAL CARD -->
+            <div class="card terminal-card">
+                <div class="card-header">
+                    <div class="card-header-title">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
+                        <span>RAW TELEMETRY PACKET STREAM</span>
+                    </div>
+                    <div class="terminal-controls">
+                        <button class="term-btn" id="btnPauseTerminal" title="Pause Stream Auto-Scroll">PAUSE</button>
+                        <button class="term-btn" id="btnClearTerminal" title="Clear Buffer">CLEAR</button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="terminal-viewport" id="terminalViewport">
+                        <div class="terminal-line system-line">[SYSTEM] GCS Initialized. Ready for telemetry stream.</div>
+                        <div class="terminal-line system-line">[CONFIG] Protocol: CSV 20-field CanSat/CubeSat telemetry packet.</div>
+                    </div>
+                </div>
+            </div>
+
+        </section>
+
+        <!-- ==================== CENTER COLUMN: REAL-TIME GRAPHS & GPS MAP ==================== -->
+        <section class="dashboard-col col-center">
+
+            <!-- MISSION KPI ANALYTICS METRICS STRIP -->
+            <div class="mission-kpi-strip">
+                <div class="kpi-box">
+                    <span class="kpi-label">MAX ALTITUDE</span>
+                    <span class="kpi-value monospaced" id="kpiMaxAlt">0.0 <small>m</small></span>
+                </div>
+                <div class="kpi-box">
+                    <span class="kpi-label">PEAK G-FORCE</span>
+                    <span class="kpi-value monospaced" id="kpiMaxG">1.00 <small>G</small></span>
+                </div>
+                <div class="kpi-box">
+                    <span class="kpi-label">MAX DESCENT</span>
+                    <span class="kpi-value monospaced" id="kpiMaxDescent">0.0 <small>m/s</small></span>
+                </div>
+                <div class="kpi-box">
+                    <span class="kpi-label">PACKET INTEGRITY</span>
+                    <span class="kpi-value monospaced highlight-green" id="kpiLossRate">100.0%</span>
+                </div>
+                <div class="kpi-box">
+                    <span class="kpi-label">FLIGHT DURATION</span>
+                    <span class="kpi-value monospaced highlight-cyan" id="kpiFlightTime">00:00</span>
+                </div>
+            </div>
+
+            <!-- REAL-TIME GRAPHS CONTAINER (ISL SPEC 6) -->
+            <div class="card graphs-card">
+                <div class="card-header">
+                    <div class="card-header-title">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
+                        <span>REAL-TIME TELEMETRY DYNAMICS</span>
+                    </div>
+                    <div class="graph-tabs">
+                        <button class="graph-tab active" data-graph-target="altitude-descent" title="Hotkey: 1">ALT & DESCENT</button>
+                        <button class="graph-tab" data-graph-target="pressure-temp" title="Hotkey: 2">PRESSURE & TEMP</button>
+                        <button class="graph-tab" data-graph-target="battery-rssi" title="Hotkey: 3">POWER & LINK</button>
+                        <button class="graph-tab" data-graph-target="imu-dynamics" title="Hotkey: 4">IMU DYNAMICS</button>
+                    </div>
+                </div>
+                <div class="card-body graphs-container-body">
+                    <!-- Tab 1: Altitude & Descent Rate Chart -->
+                    <div class="chart-wrapper active" id="chartTab-altitude-descent">
+                        <div class="chart-canvas-container">
+                            <canvas id="chartAltitudeDescent"></canvas>
+                        </div>
+                    </div>
+                    <!-- Tab 2: Pressure & Temperature Chart -->
+                    <div class="chart-wrapper" id="chartTab-pressure-temp">
+                        <div class="chart-canvas-container">
+                            <canvas id="chartPressureTemp"></canvas>
+                        </div>
+                    </div>
+                    <!-- Tab 3: Battery & RSSI Chart -->
+                    <div class="chart-wrapper" id="chartTab-battery-rssi">
+                        <div class="chart-canvas-container">
+                            <canvas id="chartBatteryRssi"></canvas>
+                        </div>
+                    </div>
+                    <!-- Tab 4: IMU Dynamics Chart -->
+                    <div class="chart-wrapper" id="chartTab-imu-dynamics">
+                        <div class="chart-canvas-container">
+                            <canvas id="chartImuDynamics"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- GPS TRACKING MAP (ISL SPEC 7) -->
+            <div class="card map-card">
+                <div class="card-header">
+                    <div class="card-header-title">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"></polygon><line x1="8" y1="2" x2="8" y2="18"></line><line x1="16" y1="6" x2="16" y2="22"></line></svg>
+                        <span>PAYLOAD GPS RECOVERY & TRAJECTORY TRACKING</span>
+                    </div>
+                    <div class="map-stats-strip">
+                        <span class="map-coord-item">LAT: <strong id="mapLat">28.6139° N</strong></span>
+                        <span class="map-coord-item">LON: <strong id="mapLon">77.2090° E</strong></span>
+                        <span class="map-coord-item">RANGE: <strong id="mapDistance">0.0 km</strong></span>
+                        <span class="map-coord-item">AZIMUTH: <strong id="mapAzimuth">0°</strong></span>
+                    </div>
+                    <div class="map-controls">
+                        <button class="map-btn" id="btnCenterMap" title="Center on CanSat (Key: C)">CENTER</button>
+                        <button class="map-btn" id="btnClearTrail" title="Clear Trajectory Trail">CLEAR TRAIL</button>
+                    </div>
+                </div>
+                <div class="card-body map-body">
+                    <div id="leafletMap" class="leaflet-map-canvas"></div>
+                </div>
+            </div>
+
+        </section>
+
+        <!-- ==================== RIGHT COLUMN: 3D, VIDEO & MISSION CONTROLS ==================== -->
+        <section class="dashboard-col col-right">
+
+            <!-- 3D ORIENTATION & ARTIFICIAL HORIZON (ISL SPEC 8) -->
+            <div class="card orientation-card">
+                <div class="card-header">
+                    <div class="card-header-title">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+                        <span>3D ATTITUDE & ORIENTATION</span>
+                    </div>
+                    <div class="model-type-selector">
+                        <button class="model-toggle-btn active" id="btnModelCanSat" title="Render CanSat Cylinder">CanSat</button>
+                        <button class="model-toggle-btn" id="btnModelCubeSat" title="Render 1U CubeSat Frame">CubeSat</button>
+                    </div>
+                    <div class="attitude-angles-pill">
+                        <span>R: <strong id="rpyRoll">0.0°</strong></span>
+                        <span>P: <strong id="rpyPitch">0.0°</strong></span>
+                        <span>Y: <strong id="rpyYaw">0.0°</strong></span>
+                    </div>
+                </div>
+                <div class="card-body orientation-body">
+                    <div class="three-container" id="threeOrientationContainer" title="Drag to Orbit / Scroll to Zoom">
+                        <!-- Three.js canvas injected here -->
+                    </div>
+                    <div class="three-hud-hint">🖱️ DRAG TO ROTATE • SCROLL TO ZOOM</div>
+                    <!-- Attitude Director Indicator / Artificial Horizon Overlay -->
+                    <div class="adi-overlay" id="adiOverlay">
+                        <div class="adi-horizon" id="adiHorizon">
+                            <div class="adi-sky"></div>
+                            <div class="adi-ground"></div>
+                            <div class="adi-pitch-ladder">
+                                <div class="pitch-line p-20">+20°</div>
+                                <div class="pitch-line p-10">+10°</div>
+                                <div class="pitch-line p-0">─── 0° ───</div>
+                                <div class="pitch-line p-m10">-10°</div>
+                                <div class="pitch-line p-m20">-20°</div>
+                            </div>
+                        </div>
+                        <div class="adi-reticle">
+                            <div class="adi-center-dot"></div>
+                            <div class="adi-wing-left"></div>
+                            <div class="adi-wing-right"></div>
+                        </div>
+                        <div class="adi-label">ADI / ARTIFICIAL HORIZON</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- LIVE OPTICAL VIDEO STREAMING (ISL SPEC 9) -->
+            <div class="card video-card">
+                <div class="card-header">
+                    <div class="card-header-title">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
+                        <span>OPTICAL PAYLOAD CAMERA & FLIGHT HUD</span>
+                    </div>
+                    <div class="video-controls-header">
+                        <select id="cameraSelect" class="gcs-select gcs-select-compact" title="Select Optical Camera Device">
+                            <option value="simulated">🛰️ Simulated Earth View</option>
+                        </select>
+                        <button class="cam-btn" id="btnToggleCam" title="Start/Stop Camera Feed">START CAM</button>
+                        <button class="cam-btn" id="btnSnapCam" title="Take Still Snapshot">📸</button>
+                    </div>
+                </div>
+                <div class="card-body video-body">
+                    <div class="video-container" id="videoContainer">
+                        <video id="webcamVideo" autoplay playsinline muted></video>
+                        <canvas id="simulatedVideoCanvas"></canvas>
+                        <!-- Aerospace Optical HUD Overlay -->
+                        <div class="video-hud-overlay" id="videoHudOverlay">
+                            <div class="hud-top-info">
+                                <span class="hud-rec"><span class="hud-rec-dot"></span> REC 1080P</span>
+                                <span class="hud-fov">FOV 120° OPTICAL</span>
+                            </div>
+                            <div class="hud-crosshair">
+                                <div class="hud-ch-circle"></div>
+                                <div class="hud-ch-h"></div>
+                                <div class="hud-ch-v"></div>
+                                <div class="hud-ch-corner top-left"></div>
+                                <div class="hud-ch-corner top-right"></div>
+                                <div class="hud-ch-corner btm-left"></div>
+                                <div class="hud-ch-corner btm-right"></div>
+                            </div>
+                            <div class="hud-bottom-telemetry">
+                                <span>ALT: <strong id="hudAlt">0.0m</strong></span>
+                                <span>SPD: <strong id="hudSpd">0.0m/s</strong></span>
+                                <span>ISL CANSAT GCS</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- MISSION CONTROL PANEL (ISL SPEC 3) -->
+            <div class="card mission-control-card">
+                <div class="card-header">
+                    <div class="card-header-title">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                        <span>MISSION CRITICAL COMMAND PANEL</span>
+                    </div>
+                    <span class="cmd-status-tag" id="lastCmdTag">IDLE</span>
+                </div>
+                <div class="card-body">
+                    <div class="command-grid">
+                        <!-- Manual Separation -->
+                        <div class="cmd-button-wrapper">
+                            <button class="cmd-btn cmd-btn-warning" id="btnCmdSeparation">
+                                <span class="cmd-btn-icon">⚡</span>
+                                <div class="cmd-btn-text">
+                                    <strong class="cmd-name">MANUAL SEPARATION</strong>
+                                    <small class="cmd-sub">Trigger Canister Release</small>
+                                </div>
+                            </button>
+                        </div>
+
+                        <!-- Emergency Parachute Deployment -->
+                        <div class="cmd-button-wrapper">
+                            <button class="cmd-btn cmd-btn-danger" id="btnCmdParachute">
+                                <span class="cmd-btn-icon">🪂</span>
+                                <div class="cmd-btn-text">
+                                    <strong class="cmd-name">EMG PARACHUTE DEPLOY</strong>
+                                    <small class="cmd-sub">Deploy Backup Recovery Chute</small>
+                                </div>
+                            </button>
+                        </div>
+
+                        <!-- Redundant Activation -->
+                        <div class="cmd-button-wrapper">
+                            <button class="cmd-btn cmd-btn-info" id="btnCmdRedundant">
+                                <span class="cmd-btn-icon">🔄</span>
+                                <div class="cmd-btn-text">
+                                    <strong class="cmd-name">REDUNDANT ACTIVATION</strong>
+                                    <small class="cmd-sub">Switch to Secondary Avionics</small>
+                                </div>
+                            </button>
+                        </div>
+
+                        <!-- Buzzer & Audio Beacon -->
+                        <div class="cmd-button-wrapper">
+                            <button class="cmd-btn cmd-btn-secondary" id="btnCmdBeacon">
+                                <span class="cmd-btn-icon">🔊</span>
+                                <div class="cmd-btn-text">
+                                    <strong class="cmd-name">RECOVERY BEACON</strong>
+                                    <small class="cmd-sub">Sound Acoustic Transponder</small>
+                                </div>
+                            </button>
+                        </div>
+
+                        <!-- Tare / Sensor Calibration -->
+                        <div class="cmd-button-wrapper full-span">
+                            <button class="cmd-btn cmd-btn-secondary" id="btnCmdTare">
+                                <span class="cmd-btn-icon">🎯</span>
+                                <div class="cmd-btn-text">
+                                    <strong class="cmd-name">TARE / CALIBRATE SENSORS (GROUND LEVEL)</strong>
+                                    <small class="cmd-sub">Set 0m Altitude Reference & Zero IMU Gyro</small>
+                                </div>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Command Execution Dynamic Feedback Log -->
+                    <div class="command-execution-log" id="commandExecutionLog">
+                        <div class="cmd-log-entry success">[12:00:00] GCS Command Subsystem Armed. Safety interlocks enabled.</div>
+                    </div>
+                </div>
+            </div>
+
+        </section>
+
+    </main>
+
+    <!-- CRITICAL COMMAND CONFIRMATION MODAL -->
+    <div class="gcs-modal-backdrop" id="cmdConfirmModal" style="display: none;">
+        <div class="gcs-modal-card">
+            <div class="modal-header modal-header-warning">
+                <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+                <h3 id="modalCmdTitle">CONFIRM CRITICAL COMMAND EXECUTION</h3>
+            </div>
+            <div class="modal-body">
+                <p id="modalCmdWarning" class="modal-warning-text">You are about to transmit a high-priority mission command to the satellite.</p>
+                <div class="modal-command-box" id="modalCmdDetails">CMD: CMD,1001,SEPARATION,ARMED</div>
+                <div class="modal-safety-check">
+                    <label class="safety-checkbox-label">
+                        <input type="checkbox" id="chkModalSafetyArm">
+                        <span>I understand this command is irreversible and transmit authorization is confirmed.</span>
+                    </label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="gcs-btn gcs-btn-secondary" id="btnModalCancel">ABORT / CANCEL</button>
+                <button class="gcs-btn gcs-btn-danger" id="btnModalExecute" disabled>TRANSMIT COMMAND</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MISSION CONFIGURATION & SETTINGS MODAL -->
+    <div class="gcs-modal-backdrop" id="settingsModal" style="display: none;">
+        <div class="gcs-modal-card">
+            <div class="modal-header">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                <h3>MISSION CONFIGURATION & SETTINGS</h3>
+            </div>
+            <div class="modal-body">
+                <div class="settings-form-grid">
+                    <div class="form-group">
+                        <label for="cfgTeamId">Team / Mission ID</label>
+                        <input type="text" id="cfgTeamId" class="gcs-input" value="ISL_1001">
+                    </div>
+                    <div class="form-group">
+                        <label for="cfgGsLat">Ground Station Latitude (°N)</label>
+                        <input type="number" step="0.0001" id="cfgGsLat" class="gcs-input" value="28.6139">
+                    </div>
+                    <div class="form-group">
+                        <label for="cfgGsLon">Ground Station Longitude (°E)</label>
+                        <input type="number" step="0.0001" id="cfgGsLon" class="gcs-input" value="77.2090">
+                    </div>
+                    <div class="form-group">
+                        <label for="cfgMinDescent">Min Safe Descent Rate (m/s)</label>
+                        <input type="number" step="0.5" id="cfgMinDescent" class="gcs-input" value="6.5">
+                    </div>
+                    <div class="form-group">
+                        <label for="cfgMaxDescent">Max Safe Descent Rate (m/s)</label>
+                        <input type="number" step="0.5" id="cfgMaxDescent" class="gcs-input" value="12.0">
+                    </div>
+                    <div class="form-group">
+                        <label class="checkbox-label" style="margin-top: 10px;">
+                            <input type="checkbox" id="cfgVoiceAnnouncer" checked>
+                            <span>Enable CAPCOM Flight Voice Announcer (Speech Synthesis)</span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="gcs-btn gcs-btn-secondary" id="btnSettingsCancel">CANCEL</button>
+                <button class="gcs-btn gcs-btn-primary" id="btnSettingsSave">SAVE & APPLY</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- OPERATOR KEYBOARD SHORTCUTS MODAL -->
+    <div class="gcs-modal-backdrop" id="shortcutsModal" style="display: none;">
+        <div class="gcs-modal-card">
+            <div class="modal-header">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2" ry="2"></rect><line x1="6" y1="8" x2="6" y2="8"></line><line x1="10" y1="8" x2="10" y2="8"></line><line x1="14" y1="8" x2="14" y2="8"></line><line x1="18" y1="8" x2="18" y2="8"></line><line x1="6" y1="12" x2="6" y2="12"></line><line x1="18" y1="12" x2="18" y2="12"></line><line x1="7" y1="16" x2="17" y2="16"></line></svg>
+                <h3>OPERATOR KEYBOARD SHORTCUTS</h3>
+            </div>
+            <div class="modal-body">
+                <div class="shortcuts-table">
+                    <div class="shortcut-row"><kbd>Space</kbd> <span>Pause / Resume Telemetry Stream</span></div>
+                    <div class="shortcut-row"><kbd>L</kbd> <span>Ignite Rocket Boost / Launch Simulator</span></div>
+                    <div class="shortcut-row"><kbd>R</kbd> <span>Reset Simulator to Pre-Launch State</span></div>
+                    <div class="shortcut-row"><kbd>M</kbd> <span>Toggle Master Audio Alerts & Voice</span></div>
+                    <div class="shortcut-row"><kbd>C</kbd> <span>Center GPS Map on CanSat Position</span></div>
+                    <div class="shortcut-row"><kbd>S</kbd> <span>Capture High-Res Optical Snapshot</span></div>
+                    <div class="shortcut-row"><kbd>F</kbd> <span>Toggle Fullscreen Mission HUD</span></div>
+                    <div class="shortcut-row"><kbd>1</kbd>–<kbd>4</kbd> <span>Switch Real-Time Dynamic Graph Tabs</span></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="gcs-btn gcs-btn-primary" id="btnShortcutsClose">CLOSE</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- SCRIPTS -->
+    <script src="js/telemetry.js"></script>
+    <script src="js/serial.js"></script>
+    <script src="js/simulator.js"></script>
+    <script src="js/charts.js"></script>
+    <script src="js/map.js"></script>
+    <script src="js/orientation.js"></script>
+    <script src="js/camera.js"></script>
+    <script src="js/controls.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>
